@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>超采通商超标注工具（性能优化版）</title>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --gray: #6b7280;
+            --bg-body: #f3f4f6;
+            --bg-panel: #ffffff;
+            --border: #e5e7eb;
+            --text-main: #1f2937;
+            --text-sub: #6b7280;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        
+        body { display: flex; height: 100vh; overflow: hidden; background: var(--bg-body); color: var(--text-main); }
+
+        /* 左侧面板 */
+        .control-panel {
+            width: 420px;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            z-index: 20;
+            transition: transform 0.3s ease-in-out;
+            box-shadow: var(--shadow);
+        }
+        .control-panel.collapsed { transform: translateX(-100%); position: absolute; height: 100%; }
+
+        /* 头部 */
+        .header {
+            padding: 12px 16px;
+            background: #fff;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .header h2 { font-size: 16px; font-weight: 600; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
+        .reset-btn { font-size: 12px; color: var(--text-sub); cursor: pointer; background: none; border: none; padding: 4px 8px; border-radius: 4px; transition: background 0.2s; }
+        .reset-btn:hover { background: #f3f4f6; color: var(--danger); }
+
+        /* 内容滚动区 */
+        .scroll-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* 🔵 蓝色区域：搜索框 (重构为下拉模式) */
+        .search-container {
+            position: relative;
+            z-index: 100;
+        }
+        .search-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            color: var(--text-sub);
+            pointer-events: none;
+            font-size: 16px;
+        }
+        .search-input {
+            width: 100%;
+            padding: 10px 36px 10px 36px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s;
+            background: #f9fafb;
+        }
+        .search-input:focus { 
+            border-color: var(--primary); 
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); 
+            background: #fff; 
+        }
+        .clear-search {
+            position: absolute;
+            right: 10px;
+            cursor: pointer;
+            color: var(--text-sub);
+            font-size: 16px;
+            line-height: 1;
+            padding: 4px;
+            border-radius: 50%;
+            display: none;
+        }
+        .clear-search:hover { background: #e5e7eb; color: var(--text-main); }
+        
+        /* 搜索结果下拉菜单 */
+        .search-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow-lg);
+            margin-top: 4px;
+            max-height: 300px;
+            overflow-y: auto;
+            display: none; /* 默认隐藏 */
+            z-index: 1000;
+        }
+        .search-dropdown.active { display: block; animation: fadeIn 0.2s ease; }
+        
+        .search-item {
+            padding: 10px 16px;
+            border-bottom: 1px solid #f3f4f6;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-main);
+            transition: background 0.15s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .search-item:last-child { border-bottom: none; }
+        .search-item:hover { background-color: #eff6ff; color: var(--primary); }
+        .search-item strong { color: var(--danger); } /* 高亮匹配词 */
+        .search-empty { padding: 12px; text-align: center; color: var(--text-sub); font-size: 13px; }
+
+        /* 🟡 黄色区域：上传与控制行 (合并优化) */
+        .upload-control-row {
+            display: flex;
+            gap: 10px;
+            align-items: stretch;
+            background: #f9fafb;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px dashed #cbd5e1;
+        }
+        
+        /* 小正方形上传区 */
+        .mini-upload-box {
+            width: 50px;
+            height: 50px;
+            border: 2px dashed #9ca3af;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            background: #fff;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .mini-upload-box:hover { border-color: var(--primary); background: #eff6ff; color: var(--primary); }
+        .mini-upload-icon { font-size: 20px; line-height: 1; }
+        .mini-upload-text { font-size: 10px; color: var(--text-sub); margin-top: 2px; }
+        
+        /* 控制区域 */
+        .control-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            justify-content: center;
+        }
+        .control-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .control-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-main);
+            white-space: nowrap;
+        }
+        select {
+            flex: 1;
+            padding: 6px 8px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            font-size: 13px;
+            outline: none;
+            background: #fff;
+        }
+        select:focus { border-color: var(--primary); }
+        
+        .action-btn-small {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: none;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            background: var(--primary);
+            color: #fff;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+        .action-btn-small:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        .action-btn-small:disabled { background: #d1d5db; cursor: not-allowed; transform: none; }
+
+        /* 🔴 红色区域：列表容器 (优化展开收缩) */
+        .list-card {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #fff;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transition: all 0.3s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            max-height: 500px; 
+        }
+        .list-header {
+            padding: 14px 16px; /* 增加内边距 */
+            background: #f9fafb;
+            border-bottom: 1px solid var(--border);
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+        .toggle-btn {
+            font-size: 13px;
+            color: var(--primary);
+            cursor: pointer;
+            background: #eff6ff;
+            border: none;
+            padding: 8px 16px; /* 加大点击区域 */
+            border-radius: 6px;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .toggle-btn:hover { background: #dbeafe; transform: scale(1.05); }
+        .toggle-btn::after { content: '▲'; font-size: 10px; }
+        
+        .list-card.collapsed { max-height: 52px; } /* 只保留标题高度 */
+        .list-card.collapsed .toggle-btn::after { content: '▼'; }
+        .list-card.collapsed .address-list { visibility: hidden; opacity: 0; }
+
+        .address-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            overflow-y: auto;
+            transition: all 0.3s ease;
+            max-height: 450px;
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        .address-item {
+            padding: 10px 16px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 13px;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: background 0.15s;
+        }
+        .address-item:last-child { border-bottom: none; }
+        .address-item:hover { background-color: #f9fafb; }
+        .address-item.selected { background-color: #fffbeb; border-left: 4px solid var(--warning); padding-left: 12px; }
+        
+        .status-success { border-left: 4px solid var(--success); background-color: #ecfdf5; }
+        .status-success:hover { background-color: #d1fae5; }
+        .status-error { border-left: 4px solid var(--danger); background-color: #fef2f2; color: var(--text-sub); }
+        .status-invalid { border-left: 4px solid var(--gray); background-color: #f9fafb; color: var(--text-sub); font-style: italic; }
+        
+        .status-icon { min-width: 16px; text-align: center; font-size: 14px; }
+
+        .fail-list .list-header { color: var(--danger); background: #fef2f2; border-bottom-color: #fecaca; }
+        .invalid-list .list-header { color: var(--gray); background: #f9fafb; border-bottom-color: #e5e7eb; }
+
+        /* 底部控制区 */
+        .bottom-controls {
+            margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+        }
+        .main-action-btn {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+            transition: all 0.2s;
+        }
+        .main-action-btn:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        .main-action-btn:disabled { background: #d1d5db; cursor: not-allowed; transform: none; box-shadow: none; }
+        
+        .pause-btn { background: var(--warning); box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2); }
+        .resume-btn { background: var(--success); box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2); }
+        
+        .clear-btn {
+            background: #fff;
+            color: var(--text-sub);
+            border: 1px solid var(--border);
+            box-shadow: none;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .clear-btn:hover { background: #f9fafb; color: var(--text-main); border-color: #9ca3af; }
+
+        /* 进度条 */
+        .progress-wrapper { margin-top: 4px; }
+        .progress-container { width: 100%; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; display: none; }
+        .progress-bar { height: 100%; background: linear-gradient(90deg, var(--primary), #60a5fa); width: 0%; transition: width 0.3s ease; }
+        .status-text { font-size: 11px; color: var(--text-sub); text-align: right; margin-top: 4px; font-weight: 500; }
+
+        /* 日志区域 */
+        .log-section { 
+            display: flex; 
+            flex-direction: column; 
+            flex-shrink: 0;
+            min-height: 100px;
+            max-height: 150px;
+        }
+        .log-header { font-size: 12px; font-weight: 600; color: var(--text-main); margin-bottom: 6px; display: flex; justify-content: space-between; }
+        .log-box {
+            flex: 1;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 11px;
+            overflow-y: auto;
+            background: #f8fafc;
+            font-family: 'Consolas', 'Monaco', monospace;
+            line-height: 1.4;
+            color: #4b5563;
+        }
+        .log-item { margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px dashed #e5e7eb; }
+        .log-item:last-child { border-bottom: none; }
+        .log-error { color: var(--danger); }
+        .log-success { color: var(--success); font-weight: 600; }
+        .log-info { color: var(--primary); }
+        .log-warn { color: var(--warning); }
+
+        /* 地图容器 */
+        .map-container { flex: 1; position: relative; background: #e5e7eb; }
+        #mapLoading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.95); padding: 24px 32px; border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; display: none; z-index: 999;
+        }
+        .spinner {
+            border: 4px solid #e5e7eb; border-top: 4px solid var(--primary);
+            border-radius: 50%; width: 32px; height: 32px;
+            animation: spin 1s linear infinite; margin: 0 auto 12px;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .global-toggle {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 1000;
+            background: #fff;
+            border: 1px solid var(--border);
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-main);
+            display: none;
+            transition: all 0.2s;
+        }
+        .global-toggle:hover { background: #f9fafb; border-color: var(--primary); color: var(--primary); }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+    </style>
+</head>
+<body>
+
+    <button class="global-toggle" id="globalToggleBtn" onclick="togglePanel()">☰ 展开面板</button>
+
+    <div class="control-panel" id="controlPanel">
+        <div class="header">
+            <h2>🛒 超采通标注工具</h2>
+            <button class="reset-btn" onclick="location.reload()">重置</button>
+        </div>
+        
+        <div class="scroll-content">
+            <!-- 🔵 蓝色区域：搜索框 (下拉模式) -->
+            <div class="search-container" id="searchContainer" style="display:none;">
+                <div class="search-input-wrapper">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" class="search-input" id="addressSearch" placeholder="输入关键词搜索表格地址..." oninput="handleSearchInput()" onfocus="showDropdownIfHasResults()">
+                    <span class="clear-search" id="clearSearchBtn" onclick="clearSearch()">✕</span>
+                </div>
+                <!-- 搜索结果下拉菜单 -->
+                <div class="search-dropdown" id="searchDropdown"></div>
+            </div>
+
+            <!-- 🟡 黄色区域：上传与控制行 (合并优化) -->
+            <div class="upload-control-row" id="uploadControlRow">
+                <!-- 小正方形上传区 -->
+                <div class="mini-upload-box" id="uploadArea">
+                    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display: none;">
+                    <span class="mini-upload-icon">📤</span>
+                    <span class="mini-upload-text">上传</span>
+                </div>
+                
+                <!-- 控制区域 -->
+                <div class="control-area" id="colGroup" style="display: none;">
+                    <div class="control-row">
+                        <span class="control-label">选择列:</span>
+                        <select id="colSelect"></select>
+                        <button id="loadBtn" class="action-btn-small">✅ 提取</button>
+                    </div>
+                </div>
+                <!-- 未上传时的提示 -->
+                <div class="control-area" id="uploadHint" style="justify-content: center; align-items: center; color: var(--text-sub); font-size: 13px;">
+                    点击左侧图标上传 Excel/CSV 文件
+                </div>
+            </div>
+
+            <!-- 🔴 红色区域：列表展示 (优化展开收缩) -->
+            <div class="list-card" id="successListWrapper" style="display: none;">
+                <div class="list-header">
+                    <span>📍 地址详情 (<span id="successCount">0</span>)</span>
+                    <button class="toggle-btn" onclick="toggleList('successList')">展开 / 收起</button>
+                </div>
+                <ul class="address-list" id="successList"></ul>
+            </div>
+
+            <div class="list-card fail-list" id="failListWrapper" style="display: none;">
+                <div class="list-header">
+                    <span>❌ 标注失败 (<span id="failCount">0</span>)</span>
+                    <button class="toggle-btn" onclick="toggleList('failList')">展开 / 收起</button>
+                </div>
+                <ul class="address-list" id="failList"></ul>
+            </div>
+
+            <div class="list-card invalid-list" id="invalidListWrapper" style="display: none;">
+                <div class="list-header">
+                    <span>⚠️ 无效地址 (<span id="invalidCount">0</span>)</span>
+                    <button class="toggle-btn" onclick="toggleList('invalidList')">展开 / 收起</button>
+                </div>
+                <ul class="address-list" id="invalidList"></ul>
+            </div>
+
+            <!-- 底部控制区 -->
+            <div class="bottom-controls">
+                <button id="mainActionBtn" class="main-action-btn" disabled>🚀 开始执行标注</button>
+                <button id="clearMapBtn" class="main-action-btn clear-btn" disabled>🗑️ 清除所有标记</button>
+                
+                <div class="progress-wrapper">
+                    <div class="progress-container" id="progressContainer">
+                        <div class="progress-bar" id="progressBar"></div>
+                    </div>
+                    <div class="status-text" id="statusText"></div>
+                </div>
+            </div>
+
+            <!-- 日志 -->
+            <div class="log-section">
+                <div class="log-header">
+                    <span>📋 运行日志</span>
+                    <span style="cursor:pointer; font-weight:normal; font-size:11px; color:var(--primary);" onclick="document.getElementById('logBox').innerHTML=''">清空</span>
+                </div>
+                <div class="log-box" id="logBox"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="map-container" id="mapContainer">
+        <div id="mapLoading">
+            <div class="spinner"></div>
+            <div style="font-weight:500; color:#374151;">地图加载中...</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script type="text/javascript" src="http://api.map.baidu.com/api?v=3.0&ak=30drKq63apPsvrcuXWeGm6mCgMmcMEM1"></script>
+
+    <script>
+        // 全局状态
+        let rawData = null;
+        let addressList = []; // {id, text, status, point, retryText}
+        let invalidListData = [];
+        let map = null;
+        let markerObjects = []; // 存储 Marker 对象本身
+        let markerDataMap = new Map(); // 存储 marker 与数据的映射关系
+        let isMapReady = false;
+        
+        // 搜索状态
+        let currentSearchQuery = '';
+        let filteredAddressIds = new Set();
+
+        // 流程控制
+        let isProcessing = false;
+        let isPaused = false;
+        let pauseResolve = null;
+        let currentLoopIndex = 0;
+        let hasJumpedToFirst = false;
+
+        const HARD_LIMIT = 500;
+        const CONCURRENT_REQUESTS = 3; // 并发请求数
+        
+        const CLEAN_SUFFIXES = ['村', '组', '队', '屯', '庄', '社', '湾', '沟', '寨', '巷', '胡同', '小区', '号院'];
+        const MICRO_SUFFIXES = ['号', '号楼', '楼', '室', '单元', '层', '附', '旁'];
+
+        const els = {
+            panel: document.getElementById('controlPanel'),
+            globalToggle: document.getElementById('globalToggleBtn'),
+            searchContainer: document.getElementById('searchContainer'),
+            addressSearch: document.getElementById('addressSearch'),
+            searchDropdown: document.getElementById('searchDropdown'),
+            clearSearchBtn: document.getElementById('clearSearchBtn'),
+            uploadArea: document.getElementById('uploadArea'),
+            fileInput: document.getElementById('fileInput'),
+            colGroup: document.getElementById('colGroup'),
+            uploadHint: document.getElementById('uploadHint'),
+            colSelect: document.getElementById('colSelect'),
+            loadBtn: document.getElementById('loadBtn'),
+            
+            successListWrapper: document.getElementById('successListWrapper'),
+            successList: document.getElementById('successList'),
+            successCount: document.getElementById('successCount'),
+            
+            failListWrapper: document.getElementById('failListWrapper'),
+            failList: document.getElementById('failList'),
+            failCount: document.getElementById('failCount'),
+            
+            invalidListWrapper: document.getElementById('invalidListWrapper'),
+            invalidList: document.getElementById('invalidList'),
+            invalidCount: document.getElementById('invalidCount'),
+            
+            mainActionBtn: document.getElementById('mainActionBtn'),
+            clearMapBtn: document.getElementById('clearMapBtn'),
+            progressContainer: document.getElementById('progressContainer'),
+            progressBar: document.getElementById('progressBar'),
+            statusText: document.getElementById('statusText'),
+            logBox: document.getElementById('logBox'),
+            mapLoading: document.getElementById('mapLoading')
+        };
+
+        function log(msg, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = `log-item log-${type}`;
+            div.innerHTML = `<span style="color:#9ca3af">[${time}]</span> ${msg}`;
+            els.logBox.appendChild(div);
+            els.logBox.scrollTop = els.logBox.scrollHeight;
+        }
+
+        function initMap() {
+            if (typeof BMap === 'undefined') {
+                log('❌ 百度地图 API 加载失败', 'error');
+                return;
+            }
+            map = new BMap.Map('mapContainer', { enableMapClick: false });
+            map.centerAndZoom(new BMap.Point(116.404, 39.915), 12);
+            map.enableScrollWheelZoom(true);
+            map.addControl(new BMap.NavigationControl({ anchor: BMAP_ANCHOR_TOP_LEFT, type: BMAP_NAVIGATION_CONTROL_PAN }));
+            map.addControl(new BMap.ScaleControl({ anchor: BMAP_ANCHOR_BOTTOM_LEFT }));
+            isMapReady = true;
+            els.mapLoading.style.display = 'none';
+            log('✅ 地图引擎就绪', 'success');
+        }
+
+        function geocodeAddress(address) {
+            return new Promise((resolve, reject) => {
+                if (!isMapReady) reject(new Error('地图未就绪'));
+                const geo = new BMap.Geocoder();
+                const timer = setTimeout(() => reject(new Error('请求超时')), 8000);
+                geo.getPoint(address, (pt) => {
+                    clearTimeout(timer);
+                    pt ? resolve(pt) : reject(new Error('未找到坐标'));
+                }, '全国');
+            });
+        }
+
+        function smartCleanAddress(originalAddress) {
+            let cleaned = originalAddress;
+            for (let suffix of MICRO_SUFFIXES) {
+                if (cleaned.endsWith(suffix)) {
+                    const regex = new RegExp(`\\d*${suffix}$`);
+                    cleaned = cleaned.replace(regex, '');
+                }
+            }
+            cleaned = cleaned.replace(/[\s,，]+$/, '');
+            if (cleaned.length > 10) {
+                for (let suffix of CLEAN_SUFFIXES) {
+                    if (cleaned.endsWith(suffix)) {
+                        cleaned = cleaned.substring(0, cleaned.length - suffix.length);
+                        cleaned = cleaned.replace(/[\s,，]+$/, '');
+                        break;
+                    }
+                }
+            }
+            if (cleaned.length === originalAddress.length || cleaned.length < 5) return null;
+            return cleaned;
+        }
+
+        // ========== 文件处理 ==========
+        ['dragover','dragenter'].forEach(e=>els.uploadArea.addEventListener(e, ev=>{ev.preventDefault();els.uploadArea.style.borderColor='var(--primary)';els.uploadArea.style.background='#eff6ff'}));
+        ['dragleave','drop'].forEach(e=>els.uploadArea.addEventListener(e, ev=>{ev.preventDefault();els.uploadArea.style.borderColor='#9ca3af';els.uploadArea.style.background='#fff'}));
+        els.uploadArea.onclick = () => els.fileInput.click();
+        els.uploadArea.ondrop = e => { if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); };
+        els.fileInput.onchange = e => { if(els.fileInput.files.length) handleFile(els.fileInput.files[0]); };
+
+        function handleFile(file) {
+            log(`📂 正在读取：${file.name}...`, 'info');
+            const reader = new FileReader();
+            
+            reader.onload = e => {
+                try {
+                    let data;
+                    const fileName = file.name.toLowerCase();
+                    
+                    if (fileName.endsWith('.csv')) {
+                        const text = e.target.result.replace(/^\uFEFF/, ''); 
+                        data = new Uint8Array(new TextEncoder().encode(text));
+                    } else {
+                        data = new Uint8Array(e.target.result);
+                    }
+
+                    const wb = XLSX.read(data, { type: 'array', cellDates: true, cellNF: true, raw: false });
+                    
+                    if (!wb.SheetNames || wb.SheetNames.length === 0) throw new Error('文件中没有工作表');
+
+                    const worksheet = wb.Sheets[wb.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+                    if (!jsonData || jsonData.length === 0) throw new Error('表格内容为空');
+
+                    const firstRow = jsonData[0];
+                    const headers = Object.keys(firstRow);
+                    const hasValidHeader = headers.some(h => h && String(h).trim() !== '');
+                    
+                    if (!hasValidHeader) throw new Error('未检测到有效表头');
+
+                    rawData = jsonData;
+                    log(`✅ 解析成功！共 ${rawData.length} 行数据`, 'success');
+                    
+                    fillColSelect(rawData[0]);
+                    els.colGroup.style.display = 'flex';
+                    els.uploadHint.style.display = 'none';
+                    
+                } catch(err) { 
+                    log(`❌ 解析失败：${err.message}`, 'error'); 
+                }
+            };
+            
+            if (file.name.toLowerCase().endsWith('.csv')) {
+                reader.readAsText(file, 'UTF-8'); 
+            } else {
+                reader.readAsArrayBuffer(file);
+            }
+        }
+
+        function fillColSelect(row) {
+            els.colSelect.innerHTML = '';
+            const headers = Object.keys(row);
+            let bestIndex = 0;
+            const keywords = ['地址', '位置', '地点', '省', '市', '区', '路', 'addr', 'address'];
+            
+            headers.forEach((h, i) => {
+                const opt = document.createElement('option');
+                opt.value = h;
+                opt.textContent = h;
+                els.colSelect.appendChild(opt);
+                if (keywords.some(k => h.toLowerCase().includes(k))) bestIndex = i;
+            });
+            els.colSelect.selectedIndex = bestIndex;
+        }
+
+        els.loadBtn.onclick = () => {
+            const col = els.colSelect.value;
+            if(!col) return;
+            
+            addressList = [];
+            invalidListData = [];
+            const seen = new Set();
+
+            for(let i=0; i<rawData.length; i++) {
+                if(addressList.length + invalidListData.length >= HARD_LIMIT) break;
+                
+                let rawVal = rawData[i][col];
+                if (rawVal === null || rawVal === undefined) {
+                    invalidListData.push({ id: `inv-${i}`, text: `(第${i+1}行) 空值`, type: 'empty' });
+                    continue;
+                }
+                
+                let addr = String(rawVal).trim().replace(/[\r\n\t]/g, '');
+                
+                if (!addr) {
+                    invalidListData.push({ id: `inv-${i}`, text: `(第${i+1}行) 空白字符`, type: 'empty' });
+                    continue;
+                }
+                
+                if (seen.has(addr)) {
+                    invalidListData.push({ id: `dup-${i}`, text: `(第${i+1}行) 重复`, type: 'duplicate' });
+                    continue;
+                }
+                
+                seen.add(addr);
+                addressList.push({id: addressList.length, text: addr, status:'pending', point:null, retryText: null});
+            }
+            
+            if(!addressList.length) {
+                log('❌ 没有有效的地址可提取', 'error');
+                renderList('invalid');
+                return;
+            }
+            
+            log(`✅ 提取完成：有效 ${addressList.length} 条`, 'success');
+            
+            filteredAddressIds = new Set(addressList.map(i => i.id));
+            currentSearchQuery = '';
+            els.searchContainer.style.display = 'block';
+            els.mainActionBtn.disabled = false;
+            els.clearMapBtn.disabled = false;
+            
+            renderList('success');
+            if(invalidListData.length > 0) renderList('invalid');
+            els.successListWrapper.style.display = 'flex';
+            els.failListWrapper.style.display = 'none';
+        };
+
+        // 🔵 搜索逻辑 (下拉菜单模式)
+        let searchTimer = null;
+        window.handleSearchInput = function() {
+            const query = els.addressSearch.value.trim();
+            els.clearSearchBtn.style.display = query ? 'block' : 'none';
+            
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => {
+                performSearch(query);
+            }, 300);
+        };
+
+        window.showDropdownIfHasResults = function() {
+            if (els.searchDropdown.children.length > 0) {
+                els.searchDropdown.classList.add('active');
+            }
+        };
+
+        window.clearSearch = function() {
+            els.addressSearch.value = '';
+            els.clearSearchBtn.style.display = 'none';
+            performSearch('');
+            els.addressSearch.focus();
+        };
+
+        function performSearch(query) {
+            currentSearchQuery = query.toLowerCase();
+            filteredAddressIds.clear();
+            els.searchDropdown.innerHTML = '';
+            
+            if (!query) {
+                addressList.forEach(i => filteredAddressIds.add(i.id));
+                els.searchDropdown.classList.remove('active');
+                renderList('success'); // 恢复完整列表
+                return;
+            }
+            
+            const matchedItems = [];
+            addressList.forEach(item => {
+                if (item.text.toLowerCase().includes(currentSearchQuery)) {
+                    filteredAddressIds.add(item.id);
+                    matchedItems.push(item);
+                }
+            });
+            
+            if (matchedItems.length === 0) {
+                els.searchDropdown.innerHTML = '<div class="search-empty">未找到匹配的地址</div>';
+            } else {
+                matchedItems.slice(0, 50).forEach(item => { // 限制显示前 50 个以防卡顿
+                    const div = document.createElement('div');
+                    div.className = 'search-item';
+                    div.innerHTML = highlightText(item.text, currentSearchQuery);
+                    div.onclick = () => {
+                        focusAddress(item);
+                        els.searchDropdown.classList.remove('active');
+                        els.addressSearch.value = ''; // 可选：点击后清空搜索框
+                        els.clearSearchBtn.style.display = 'none';
+                        performSearch(''); // 恢复列表
+                    };
+                    els.searchDropdown.appendChild(div);
+                });
+                if (matchedItems.length > 50) {
+                    const more = document.createElement('div');
+                    more.className = 'search-empty';
+                    more.textContent = `...还有 ${matchedItems.length - 50} 条结果`;
+                    els.searchDropdown.appendChild(more);
+                }
+            }
+            
+            els.searchDropdown.classList.add('active');
+            renderList('success'); // 更新主列表以显示过滤结果
+        }
+
+        function highlightText(text, query) {
+            if (!query) return text;
+            const regex = new RegExp(`(${query})`, 'gi');
+            return text.replace(regex, '<strong>$1</strong>');
+        }
+
+        // 点击外部关闭下拉菜单
+        document.addEventListener('click', function(event) {
+            if (!els.searchContainer.contains(event.target)) {
+                els.searchDropdown.classList.remove('active');
+            }
+        });
+
+        function renderList(type) {
+            let listEl, countEl, wrapper, sourceList;
+            
+            if (type === 'success') {
+                listEl = els.successList; countEl = els.successCount; wrapper = els.successListWrapper;
+                sourceList = addressList.filter(i => i.status !== 'error' && filteredAddressIds.has(i.id));
+            } else if (type === 'fail') {
+                listEl = els.failList; countEl = els.failCount; wrapper = els.failListWrapper;
+                sourceList = addressList.filter(i => i.status === 'error');
+            } else if (type === 'invalid') {
+                listEl = els.invalidList; countEl = els.invalidCount; wrapper = els.invalidListWrapper;
+                sourceList = invalidListData;
+            }
+
+            listEl.innerHTML = '';
+            countEl.textContent = sourceList.length;
+            
+            if (sourceList.length === 0) {
+                wrapper.style.display = 'none';
+                return;
+            }
+            wrapper.style.display = 'flex';
+            wrapper.classList.remove('collapsed');
+            listEl.classList.remove('collapsed');
+
+            const frag = document.createDocumentFragment();
+            sourceList.forEach(item => {
+                const li = document.createElement('li');
+                let icon = '⏳';
+                let statusClass = '';
+                
+                if (type === 'success') {
+                    if (item.status === 'success') { icon = '✅'; statusClass = 'status-success'; }
+                    else if (item.status === 'error') { icon = '❌'; statusClass = 'status-error'; }
+                } else if (type === 'fail') {
+                    icon = '❌'; statusClass = 'status-error';
+                } else if (type === 'invalid') {
+                    icon = '⚠️'; statusClass = 'status-invalid';
+                }
+
+                li.className = `address-item ${statusClass}`;
+                li.id = `addr-${item.id}`;
+                const displayText = (type === 'success') ? highlightText(item.text, currentSearchQuery) : item.text;
+                li.innerHTML = `<span class="status-icon">${icon}</span><span>${displayText}</span>`;
+                
+                if (type !== 'invalid') {
+                    li.onclick = () => focusAddress(item);
+                }
+                
+                frag.appendChild(li);
+            });
+            listEl.appendChild(frag);
+        }
+
+        function updateItemStatus(item) {
+            const li = document.getElementById(`addr-${item.id}`);
+            if (li) {
+                if (item.status === 'success') {
+                    li.classList.add('status-success');
+                    li.classList.remove('status-error');
+                    li.querySelector('.status-icon').textContent = '✅';
+                } else {
+                    li.classList.add('status-error');
+                    li.classList.remove('status-success');
+                    li.querySelector('.status-icon').textContent = '❌';
+                }
+            } else if (filteredAddressIds.has(item.id)) {
+                renderList('success');
+            }
+        }
+
+        function focusAddress(item) {
+            document.querySelectorAll('.address-item').forEach(el => el.classList.remove('selected'));
+            const li = document.getElementById(`addr-${item.id}`);
+            if(li) {
+                li.classList.add('selected');
+                li.scrollIntoView({behavior:'smooth', block:'center'});
+            }
+
+            if (item.status === 'success' && item.point) {
+                map.centerAndZoom(item.point, 16);
+                const markerKey = `mk-${item.id}`;
+                const markerObj = markerDataMap.get(markerKey);
+                if(markerObj) {
+                    markerObj.marker.dispatchEvent(new MouseEvent('click'));
+                }
+                log(`📍 已定位：${item.text}`, 'info');
+            } else if (item.status === 'error') {
+                log(`⚠️ 查看失败地址：${item.text}`, 'warn');
+                map.openInfoWindow(new BMap.InfoWindow(`<div style="padding:5px"><strong>标注失败</strong><br>${item.text}<br>${item.retryText ? '<small>已尝试智能清洗</small>' : ''}</div>`), map.getCenter());
+            }
+        }
+
+        window.toggleList = function(listId) {
+            let wrapper, listEl;
+            if (listId === 'successList') { wrapper = els.successListWrapper; listEl = els.successList; }
+            else if (listId === 'failList') { wrapper = els.failListWrapper; listEl = els.failList; }
+            else if (listId === 'invalidList') { wrapper = els.invalidListWrapper; listEl = els.invalidList; }
+            if (!wrapper) return;
+            wrapper.classList.toggle('collapsed');
+        };
+
+        window.togglePanel = function() {
+            els.panel.classList.toggle('collapsed');
+            const isCollapsed = els.panel.classList.contains('collapsed');
+            els.globalToggle.style.display = isCollapsed ? 'block' : 'none';
+            els.globalToggle.textContent = isCollapsed ? '☰ 展开面板' : '✕ 隐藏面板';
+            setTimeout(() => { if(map) map.resize(); }, 350);
+        };
+        els.globalToggle.style.display = 'none';
+
+        // ========== 标注流程 (性能优化版) ==========
+        function updateBtnState() {
+            if(!isProcessing) {
+                els.mainActionBtn.textContent = "🚀 开始执行标注";
+                els.mainActionBtn.className = "main-action-btn";
+            } else if(isPaused) {
+                els.mainActionBtn.textContent = "▶️ 继续标注";
+                els.mainActionBtn.className = "main-action-btn resume-btn";
+            } else {
+                els.mainActionBtn.textContent = "⏸️ 暂停标注";
+                els.mainActionBtn.className = "main-action-btn pause-btn";
+            }
+        }
+
+        els.mainActionBtn.onclick = () => {
+            if(!isMapReady) return;
+            if(!isProcessing) startMarking();
+            else if(isPaused) resumeMarking();
+            else pauseMarking();
+        };
+
+        function startMarking() {
+            isProcessing = true; isPaused = false; currentLoopIndex = 0; hasJumpedToFirst = false;
+            if(markerObjects.length) { clearMarkers(); log('⚠️ 已清除旧标记', 'warn'); }
+            els.progressContainer.style.display = 'block';
+            updateBtnState();
+            runLoop();
+        }
+
+        function pauseMarking() {
+            isPaused = true;
+            log('⏸️ 已暂停', 'warn');
+            updateBtnState();
+            pauseResolve = null;
+            window.pausePromise = new Promise(r => pauseResolve = r);
+        }
+
+        function resumeMarking() {
+            if(!isPaused) return;
+            isPaused = false;
+            log('▶️ 继续中...', 'info');
+            updateBtnState();
+            if(pauseResolve) { pauseResolve(); window.pausePromise = null; }
+        }
+
+        // 核心优化：并发控制的地理编码循环
+        async function runLoop() {
+            const total = addressList.length;
+            let currentIndex = 0;
+            let successCount = 0;
+            let failCount = 0;
+
+            const processBatch = async (batch) => {
+                const promises = batch.map(async (item) => {
+                    if (isPaused) await window.pausePromise;
+                    if (!isProcessing) return;
+
+                    try {
+                        const pt = await geocodeAddress(item.text);
+                        item.point = pt; 
+                        item.status = 'success';
+                        // 创建标记对象并存入缓存
+                        const markerKey = `mk-${item.id}`;
+                        const marker = createMarkerObject(pt, item.text, item.id);
+                        markerObjects.push(marker);
+                        markerDataMap.set(markerKey, { marker, item });
+
+                        successCount++;
+                        if (!hasJumpedToFirst) {
+                            map.centerAndZoom(pt, 13);
+                            hasJumpedToFirst = true;
+                            log(`🚀 已定位到首个地点`, 'info');
+                        }
+                        updateItemStatus(item);
+
+                    } catch(err) {
+                        const cleanedAddr = smartCleanAddress(item.text);
+                        
+                        if (cleanedAddr) {
+                            log(`⚠️ "${item.text}" 失败，尝试清洗：${cleanedAddr}`, 'warn');
+                            item.retryText = cleanedAddr;
+                            
+                            try {
+                                const ptRetry = await geocodeAddress(cleanedAddr);
+                                item.point = ptRetry;
+                                item.status = 'success';
+                                const markerKey = `mk-${item.id}-cleaned`;
+                                const marker = createMarkerObject(ptRetry, `${item.text} (清洗)`, item.id);
+                                markerObjects.push(marker);
+                                markerDataMap.set(markerKey, { marker, item });
+                                successCount++;
+                                log(`✅ 清洗成功：${cleanedAddr}`, 'success');
+                                updateItemStatus(item);
+                                return;
+                            } catch (retryErr) {
+                                log(`❌ 清洗也失败`, 'error');
+                            }
+                        }
+
+                        item.status = 'error';
+                        failCount++;
+                        updateItemStatus(item);
+                    }
+                });
+
+                await Promise.all(promises);
+                // 更新进度
+                currentIndex += batch.length;
+                els.progressBar.style.width = `${(currentIndex/total*100).toFixed(1)}%`;
+                els.statusText.textContent = `处理：${currentIndex}/${total}`;
+            };
+
+            // 分批处理地址列表
+            for (let i = 0; i < total; i += CONCURRENT_REQUESTS) {
+                if (!isProcessing) break;
+                const batch = addressList.slice(i, i + CONCURRENT_REQUESTS);
+                await processBatch(batch);
+                if (i + CONCURRENT_REQUESTS < total) {
+                    await new Promise(resolve => setTimeout(resolve, 50)); // 批次间短暂休眠
+                }
+            }
+
+            // 所有请求完成后，一次性将标记添加到地图上
+            if (markerObjects.length > 0) {
+                log(`📊 批量添加 ${markerObjects.length} 个标记到地图...`, 'info');
+                const addBatch = (batch, index) => {
+                    if (index >= batch.length) {
+                        log(`✅ 标记全部添加完成`, 'success');
+                        return;
+                    }
+                    map.addOverlay(batch[index]);
+                    setTimeout(() => addBatch(batch, index + 1), 1); // 逐个添加，避免卡顿
+                };
+                addBatch(markerObjects, 0);
+            }
+
+
+            if(isProcessing) { // 如果是因为暂停而退出，则不显示完成信息
+                isProcessing = false; isPaused = false;
+                els.progressBar.style.width = '100%';
+                els.statusText.textContent = '✅ 全部完成';
+                log(`🎉 完成！成功：${successCount}, 失败：${failCount}`, 'success');
+                if(failCount > 0) renderList('fail');
+                updateBtnState();
+                setTimeout(()=>{els.progressContainer.style.display='none'; els.statusText.textContent='';}, 5000);
+            } else {
+                updateBtnState();
+            }
+        }
+
+        // 创建标记对象的辅助函数
+        function createMarkerObject(pt, text, idx) {
+            const mk = new BMap.Marker(pt);
+            const html = `<div style="padding:8px;"><strong>#${idx+1}</strong><br>${text}</div>`;
+            const win = new BMap.InfoWindow(html, {width:220});
+            mk.onclick = function() {
+                this.openInfoWindow(win);
+                focusAddress(addressList[idx]);
+            };
+            return mk;
+        }
+
+        els.clearMapBtn.onclick = () => {
+            clearMarkers();
+            addressList.forEach(i => { i.status = 'pending'; i.point = null; i.retryText = null; });
+            filteredAddressIds = new Set(addressList.map(i => i.id));
+            currentSearchQuery = '';
+            els.addressSearch.value = '';
+            els.clearSearchBtn.style.display = 'none';
+            els.searchDropdown.classList.remove('active');
+            renderList('success');
+            els.failListWrapper.style.display = 'none';
+            currentLoopIndex = 0;
+            hasJumpedToFirst = false;
+            log('🗑️ 已重置', 'info');
+            els.mainActionBtn.textContent = "🚀 开始执行标注";
+            els.mainActionBtn.className = "main-action-btn";
+            els.progressContainer.style.display = 'none';
+        };
+
+        function clearMarkers() {
+            // 移除地图上的所有标记
+            markerObjects.forEach(m => {
+                if (map.hasOverlay(m)) {
+                    map.removeOverlay(m);
+                }
+            });
+            // 清空缓存
+            markerObjects = [];
+            markerDataMap.clear();
+        }
+
+        window.onload = () => {
+            els.mapLoading.style.display = 'block';
+            setTimeout(initMap, 300);
+            log('📌 工具就绪', 'success');
+        };
+    </script>
+</body>
+</html>
